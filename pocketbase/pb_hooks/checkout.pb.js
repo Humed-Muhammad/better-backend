@@ -17,7 +17,17 @@
  * 3. **Authority.** Prices come from the catalogue on the server, not from the
  *    request, so a modified client cannot sell at a price it invented.
  *
- * Body: { clientRef, status, customer?, note?, soldAt?, lines: [{item, quantity}] }
+ * Body: { clientRef, status, customer?, note?, soldAt?, amount?, lines: [{item, quantity}] }
+ *
+ * **Lineless debts.** A shop often owes-book predates the app, or covers goods
+ * that were never in the catalogue. Such a debt may be sent with no lines and
+ * an explicit `amount`. This is the one case where the server takes a figure
+ * from the client, and it is deliberately narrow:
+ *
+ * - only when `status` is `debt` — a *paid* sale still prices from the
+ *   catalogue, so no one can sell at a price they invented;
+ * - it records money **owed to the shop**, which the shop is asserting itself;
+ * - no stock moves, because nothing left the shelves through this path.
  */
 routerAdd("POST", "/api/pos/checkout", (e) => {
   const auth = e.auth;
@@ -38,6 +48,7 @@ routerAdd("POST", "/api/pos/checkout", (e) => {
     customer: "",
     note: "",
     soldAt: "",
+    amount: 0,
     lines: [],
   });
   e.bindBody(body);
@@ -50,8 +61,16 @@ routerAdd("POST", "/api/pos/checkout", (e) => {
     throw new BadRequestError("clientRef is required so retries stay safe.");
   }
 
-  if (lines.length === 0) {
+  // A lineless sale is only meaningful as a manually recorded debt.
+  const manualAmount = Number(body.amount) || 0;
+  const isManualDebt = lines.length === 0 && status === "debt";
+
+  if (lines.length === 0 && !isManualDebt) {
     throw new BadRequestError("A sale needs at least one line.");
+  }
+
+  if (isManualDebt && !(manualAmount > 0)) {
+    throw new BadRequestError("A recorded debt needs an amount above zero.");
   }
 
   if (status === "debt" && !body.customer) {
@@ -103,9 +122,16 @@ routerAdd("POST", "/api/pos/checkout", (e) => {
       }
     }
 
-    let total = 0;
-    for (const entry of resolved) {
-      total += entry.item.getFloat("price") * entry.quantity;
+    // A manual debt has no lines to price, so its amount is the one the shop
+    // asserted. Everything else is still priced from the catalogue.
+    let total = manualAmount;
+
+    if (!isManualDebt) {
+      total = 0;
+
+      for (const entry of resolved) {
+        total += entry.item.getFloat("price") * entry.quantity;
+      }
     }
 
     const salesCollection = txApp.findCollectionByNameOrId("sales");
