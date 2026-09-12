@@ -2,7 +2,7 @@
   "name": "better-backend",
   "private": true,
   "scripts": {
-    "db": "cd ./pocketbase && ./pocketbase serve --http=0.0.0.0:8090",
+    "db": "cd ./pocketbase && ./pocketbase serve",
     "db:local": "cd ./pocketbase && ./pocketbase serve",
     "db:reset": "rm -rf ./pocketbase/pb_data && cd ./pocketbase && ./pocketbase serve --http=0.0.0.0:8090"
   }
